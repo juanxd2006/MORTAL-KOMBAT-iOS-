@@ -1,0 +1,86 @@
+# Private inputs are configured outside Git; see docs/BUILDING.md.
+# Workflow IDs are stable for existing Codemagic applications.
+workflows:
+  renut-metal-rebuild-ipa:
+    name: MK9 — Update IPA (reuse Metal shaders)
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: '26.3'
+      groups:
+      - mk9_shader_test
+    cache:
+      cache_paths:
+      - $HOME/.cache/pip
+      - $CM_BUILD_DIR/vendor/mk9-nx/sdk/thirdparty
+      - $CM_BUILD_DIR/vendor/mk9-nx/out/host
+      - $CM_BUILD_DIR/vendor/mk9-nx/sdk/out
+      - $CM_BUILD_DIR/vendor/mk9-nx/out/glslang
+      - $CM_BUILD_DIR/.mk9-codegen-cache
+      - $CM_BUILD_DIR/.renut-metal-cache
+      - $CM_BUILD_DIR/.renut-build-tools
+    scripts:
+    - name: Prepare private game executable
+      script: python3 tools/ios/prepare_private_xex.py
+    - name: Prepare SDK and cached game code
+      script: |
+        set -euo pipefail
+        command -v ninja >/dev/null || brew install ninja
+        brew list --versions fmt >/dev/null || brew install fmt
+        brew list --versions xxhash >/dev/null || brew install xxhash
+        bash scripts/00-fetch-sdk.sh --metal-only
+        python3 tools/ios/cached_codegen.py
+    - name: Rebuild executable and reuse IPA Metal libraries
+      script: |
+        set -euo pipefail
+        MK9_REUSE_IPA_SHADERS=1 \
+        FMT_DIR="$(brew --prefix fmt)/include" \
+        XXHASH_DIR="$(brew --prefix xxhash)/include" \
+          bash scripts/build-renut-metal-game-ipa.sh
+    artifacts:
+    - MK9.ipa
+  renut-metal-game-ipa:
+    name: MK9 — Build IPA (compile Metal shaders)
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: '26.3'
+      groups:
+      - mk9_shader_test
+    cache:
+      cache_paths:
+      - $HOME/.cache/pip
+      - $CM_BUILD_DIR/vendor/mk9-nx/sdk/thirdparty
+      - $CM_BUILD_DIR/vendor/mk9-nx/out/host
+      - $CM_BUILD_DIR/vendor/mk9-nx/sdk/out
+      - $CM_BUILD_DIR/vendor/mk9-nx/out/glslang
+      - $CM_BUILD_DIR/.mk9-codegen-cache
+      - $CM_BUILD_DIR/.renut-metal-cache
+      - $CM_BUILD_DIR/.renut-build-tools
+    scripts:
+    - name: Prepare private game executable
+      script: python3 tools/ios/prepare_private_xex.py
+    - name: Prepare Renut Metal compilers
+      script: |
+        set -euo pipefail
+        command -v ninja >/dev/null || brew install ninja
+        brew list --versions fmt >/dev/null || brew install fmt
+        brew list --versions xxhash >/dev/null || brew install xxhash
+        brew list --versions spirv-cross >/dev/null || brew install spirv-cross
+        bash scripts/prepare-metal-toolchain.sh
+        bash scripts/prepare-renut-dxc-cached.sh
+    - name: Prepare SDK and cached game code
+      script: |
+        set -euo pipefail
+        bash scripts/00-fetch-sdk.sh --metal-only
+        python3 tools/ios/cached_codegen.py
+    - name: Prepare shaders and generate experimental IPA
+      script: |
+        set -euo pipefail
+        MK9_DXC="$CM_BUILD_DIR/.renut-build-tools/dxc/dxc" \
+        MK9_SPIRV_CROSS_ROOT="$(brew --prefix spirv-cross)" \
+        FMT_DIR="$(brew --prefix fmt)/include" \
+        XXHASH_DIR="$(brew --prefix xxhash)/include" \
+          bash scripts/build-renut-metal-game-ipa.sh
+    artifacts:
+    - MK9.ipa
